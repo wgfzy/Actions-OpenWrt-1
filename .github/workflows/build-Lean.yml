@@ -213,6 +213,16 @@ jobs:
         curl -fsSL https://raw.githubusercontent.com/hong0980/diy/master/fetch_cache.sh | /bin/bash
         echo "status=success" >>$GITHUB_OUTPUT
 
+    - name: Save cache state
+      if: env.SAVE_CACHE == 'true' && steps.fetch_cache.conclusion == 'success' && !cancelled()
+      run: |
+          echo "上传到github"
+          export AUTH="Authorization: token ${{ secrets.GITHUB_TOKEN }}"
+          export cache_path='github.com/repos/hong0980/OpenWrt-Cache/releases'
+          export cache_repo_id='32021831'
+          ls firmware/*img.zst* firmware/*toolchain* firmware/*imagebuilder* | \
+          parallel --wc 'while true; do curl -T {} -H "$AUTH" -H "Content-Type: application/octet-stream" "https://uploads.$cache_path/$cache_repo_id/assets?name={}" && break || true; done'
+
     - name: 上传到 Release
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'&& !cancelled()
       uses: softprops/action-gh-release@v1
