@@ -209,14 +209,23 @@ jobs:
         curl -fsSL https://raw.githubusercontent.com/hong0980/diy/master/fetch_cache.sh | /bin/bash
         echo "status=success" >>$GITHUB_OUTPUT
 
-    - name: 上传到 release
+    # - name: 上传到 release
+    #   if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'&& !cancelled()
+    #   uses: ncipollo/release-action@v1.11.2
+    #   with:
+    #     allowUpdates: true
+    #     replacesArtifacts: true
+    #     artifacts: firmware/*
+    #     tag: ${{env.STRDATE}}
+    #     token: ${{ secrets.GITHUB_TOKEN }}
+    #     name: ${{env.STRDATE}} ${{env.EMOJI}} 自动发布 ${{env.EMOJI}}
+
+    - name: 上传到 Release
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'&& !cancelled()
-      uses: ncipollo/release-action@v1.11.2
+      uses: softprops/action-gh-release@v1
       with:
-        allowUpdates: true
-        replacesArtifacts: true
-        artifacts: firmware/*
-        tag: ${{env.STRDATE}}
+        files: firmware/*
+        append_body: true
+        tag_name: ${{env.STRDATE}}
         token: ${{ secrets.GITHUB_TOKEN }}
         name: ${{env.STRDATE}} ${{env.EMOJI}} 自动发布 ${{env.EMOJI}}
-
