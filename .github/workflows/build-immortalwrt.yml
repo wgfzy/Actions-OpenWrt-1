@@ -100,10 +100,10 @@ jobs:
 
     - name: 下载软件包
       run: |
-        sudo mkdir -p -m 777 /mnt/$REPO_FLODER/dl /mnt/$REPO_FLODER/bin /mnt/$REPO_FLODER/staging_dir
-        ln -sf /mnt/$REPO_FLODER/dl $REPO_FLODER/dl
-        ln -sf /mnt/$REPO_FLODER/bin $REPO_FLODER/bin
-        ln -sf /mnt/$REPO_FLODER/staging_dir $REPO_FLODER/staging_dir
+        # sudo mkdir -p -m 777 /mnt/$REPO_FLODER/dl /mnt/$REPO_FLODER/bin /mnt/$REPO_FLODER/staging_dir
+        # ln -sf /mnt/$REPO_FLODER/dl $REPO_FLODER/dl
+        # ln -sf /mnt/$REPO_FLODER/bin $REPO_FLODER/bin
+        # ln -sf /mnt/$REPO_FLODER/staging_dir $REPO_FLODER/staging_dir
         echo "======================="
         echo "磁盘使用情况:"
         echo "======================="
