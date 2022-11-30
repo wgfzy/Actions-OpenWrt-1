@@ -1,0 +1,236 @@
+#=================================================
+# https://github.com/P3TERX/Actions-OpenWrt
+# Description: Build OpenWrt using GitHub Actions
+# Lisence: MIT
+# Author: P3TERX
+# Blog: https://p3terx.com
+#=================================================
+
+name: lean_openwrt
+on:
+ # push:
+  # paths:
+  #   - 'lean_openwrt'
+  # schedule:
+    # - cron: 0 19 * * *
+# on:
+  # watch:
+  #   types: started
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: 'r1-plus-lts选择仓库：lean，baiywt, xunlong官方'
+        default: 'lean'
+        required: true
+        type: choice
+        options: [ lean, xunlong, baiywt ]
+      target:
+        description: '选择要生成firmware的机型：'
+        default: 'r1-plus-lts'
+        required: true
+        type: choice
+        options: [ x86_64, newifi-d2, r4s, r2s, r2c, phicomm_k2p, armvirt_64_Default, asus_rt-n16, r1-plus-lts, r1-plus ]
+      version:
+        description: '选择要生成版本： pure(纯净)，plus(全家桶)'
+        default: 'plus'
+        required: true
+        type: choice
+        options: [ pure, plus ]
+      ip:
+        description: '设置web登录IP：（选填）'
+        required: false
+      partsize:
+        description: '设置rootfs大小：（选填,只适用x86_64，arm）'
+        required: false
+
+env:
+  UPLOAD_RELEASE: true
+  UPLOAD_PACKAGES: true
+  UPLOAD_SYSUPGRADE: true
+  UPLOAD_BIN_DIR: true
+  UPLOAD_COWTRANSFER: true
+  UPLOAD_WETRANSFER: true
+  REPO_FLODER: lede
+  CACHE_ACTIONS: true
+
+jobs:
+  lean_openwrt:
+    name: ${{ github.event.inputs.repository }}_openwrt-${{ github.event.inputs.target }}-${{ github.event.inputs.version }}
+    runs-on: ubuntu-20.04
+    if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
+
+    env:
+      IP: ${{ github.event.inputs.ip }}
+      VERSION: ${{ github.event.inputs.version }}
+      PARTSIZE: ${{ github.event.inputs.partsize }}
+      REPOSITORY: ${{ github.event.inputs.repository }}
+      TARGET_DEVICE: ${{ github.event.inputs.target }}
+    #   TARGET_DEVICE: ${{matrix.target}}
+    # strategy:
+    #   fail-fast: false
+    #   matrix:
+    #     target: ["x86_64", "r1-plus-lts"]
+        # target: ["newifi-d2", "phicomm_k2p" ,"asus_rt-n16", "armvirt_64_Default", "x86_64"]
+        # target: ["newifi-d2", "x86_64", "r1-plus-lts", "phicomm_k2p", "armvirt_64_Default", "asus_rt-n16"]
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3.1.0
+
+    - name: 初始环境
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        nohup sh -c '
+        sudo apt update;
+        sudo apt -y --no-upgrade --no-install-recommends install pv jq \
+        ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+        git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev \
+        libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz \
+        mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pip qemu-utils \
+        rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev libpython3-dev
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk
+        sudo sysctl vm.swappiness=0
+        ' &
+        sudo ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+    - name: 运行自定义
+      run: curl -fsSL git.io/lean_openwrt | /bin/bash
+
+    - name: Cache
+      uses: HiGarfield/cachewrtbuild@main
+      continue-on-error: true
+      if: env.CACHE_ACTIONS == 'true'
+      with:
+        ccache: 'true'
+        mixkey: ${{env.ARCH}}-
+        prefix: ${{github.workspace}}/${{env.REPO_FLODER}}
+        clean: ${{env.CLEAN}}
+
+    - name: 下载软件包
+      run: |
+        echo "======================="
+        echo "磁盘使用情况:"
+        echo "======================="
+        echo " 系统空间       类型      总数   已用  可用 使用率 路径"
+        df -hT
+        echo "======================="
+        cd $REPO_FLODER
+        make package/download -j32
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+        sleep 5
+
+    - name: 固件编译
+      timeout-minutes: 1440
+      id: compile
+      run: |
+        shopt -s extglob
+        cd $REPO_FLODER
+        make -j$(($(nproc)+1)) || make -j1 V=s
+        echo "status=success" >>$GITHUB_OUTPUT
+
+    - name: 上传错误日志
+      uses: actions/upload-artifact@v3
+      if: steps.compile.outputs.status != 'success' && !cancelled()
+      with:
+        name: Logs_Toolchain_${{ env.FILE_DATE }}
+        path: ${{ env.REPO_FLODER }}/logs
+
+    - name: 磁盘使用情况
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        cd $REPO_FLODER
+        echo "======================="
+        echo "磁盘使用情况:"
+        echo "======================="
+        echo " 系统空间       类型      总数   已用  可用 使用率 路径"
+        df -hT
+        echo "======================="
+        du -h --max-depth=1 ./ --exclude=bin --exclude=build_dir --exclude=staging_dir
+        du -h --max-depth=1 ./bin
+        du -h --max-depth=1 ./build_dir
+        du -h --max-depth=1 ./staging_dir
+
+    - name: 筛选固件
+      id: organize
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        mkdir firmware output
+        ls $REPO_FLODER/bin/targets/*/*/
+        cp -v $(find $REPO_FLODER/bin/targets/ -type f -name "*${FIRMWARE_TYPE}*") firmware || true
+        tar -zcPf firmware/${REPOSITORY}-${REPO_BRANCH#*-}-$(TZ=UTC-8 date +%m-%d)-${ARCH}-${VERSION}-packages.tar.gz $REPO_FLODER/bin/packages/ || true
+        cp -vrf $REPO_FLODER/.config firmware/${REPOSITORY}-${REPO_BRANCH#*-}-$(TZ=UTC-8 date +%m-%d)-${TARGET_DEVICE}-${VERSION}-config.txt || true
+        cd firmware && md5sum * >>${REPOSITORY}-${REPO_BRANCH#*-}-$(TZ=UTC-8 date +%m-%d)-${TARGET_DEVICE}-${VERSION}-md5.txt || true
+        echo "FIRMWARE=$PWD" >>$GITHUB_ENV
+        echo "STRDATE=$(TZ=UTC-8 date +%Y-%m-%d)" >>$GITHUB_ENV
+        Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
+        RANDOM=$$$(date +%s); rand=$[$RANDOM % ${#Emoji[@]}]
+        echo "EMOJI=${Emoji[$rand]}" >>$GITHUB_ENV
+        echo "status=success" >>$GITHUB_OUTPUT
+        
+    - name: 上传bin包
+      uses: actions/upload-artifact@v3
+      if: steps.organize.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true' && !cancelled()
+      with:
+        name: OpenWrt-${{env.TARGET_DEVICE}}-bin
+        path: ${{env.REPO_FLODER}}/bin
+
+    - name: 上传packages包
+      uses: actions/upload-artifact@v3
+      if: steps.organize.outputs.status == 'success' && env.UPLOAD_PACKAGES == 'true' && !cancelled()
+      with:
+        name: OpenWrt-${{env.TARGET_DEVICE}}-package
+        path: ${{env.REPO_FLODER}}/bin/packages
+
+    - name: 上传firmware
+      uses: actions/upload-artifact@v3
+      if: steps.organize.outputs.status == 'success' && env.UPLOAD_SYSUPGRADE == 'true' && !cancelled()
+      with:
+        name: OpenWrt-${{env.TARGET_DEVICE}}-firmware
+        path: firmware/*${{env.FIRMWARE_TYPE}}*
+
+    - name: 上传到奶牛快传
+      id: cowtransfer
+      if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
+      run: |
+        curl -fsSL git.io/file-transfer | sh
+        ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
+        echo "::warning file=↓↓奶牛快传下载地址↓↓::$(grep https cowtransfer.log)"
+
+    - name: 上传到WeTransfer
+      id: wetransfer
+      if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+      run: |
+        curl -fsSL git.io/file-transfer | sh
+        ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
+        echo "::warning file=↓↓wetransfer下载地址↓↓::$(grep https wetransfer.log)"
+
+    - name: fetch_cache
+      id: fetch_cache
+      if: env.FETCH_CACHE == 'true' && !cancelled()
+      run: |
+        curl -fsSL https://raw.githubusercontent.com/hong0980/diy/master/fetch_cache.sh | /bin/bash
+        echo "status=success" >>$GITHUB_OUTPUT
+
+    - name: 上传到 release
+      if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'&& !cancelled()
+      uses: ncipollo/release-action@v1.11.2
+      with:
+        allowUpdates: true
+        replacesArtifacts: true
+        artifacts: firmware/*
+        tag: ${{env.STRDATE}}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        name: ${{env.STRDATE}} ${{env.EMOJI}} 自动发布 ${{env.EMOJI}}
+
+    # - name: 上传到 release
+    #   if: steps.fetch_cache.outputs.status == 'success' && !cancelled()
+    #   uses: ncipollo/release-action@v1.11.2
+    #   with:
+    #     owner: OpenWrt-Cache
+    #     repo:  hong0980
+    #     token: ${{ secrets.GITHUB_TOKEN }}
+    #     artifacts: output/*
+    #     tag: ${{ github.ref }}
+    #     body: "This is my release text"
