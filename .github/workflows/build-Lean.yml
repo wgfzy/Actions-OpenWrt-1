@@ -125,22 +125,8 @@ jobs:
       timeout-minutes: 1440
       id: compile
       run: |
-        shopt -s extglob
         cd $REPO_FLODER
         make -j$(($(nproc)+1)) || make -j1 V=s
-        echo "status=success" >>$GITHUB_OUTPUT
-
-    - name: 上传错误日志
-      uses: actions/upload-artifact@v3
-      if: steps.compile.outputs.status != 'success' && !cancelled()
-      with:
-        name: Logs_Toolchain_${{ env.FILE_DATE }}
-        path: ${{ env.REPO_FLODER }}/logs
-
-    - name: 磁盘使用情况
-      if: steps.compile.outputs.status == 'success' && !cancelled()
-      run: |
-        cd $REPO_FLODER
         echo "======================="
         echo "磁盘使用情况:"
         echo "======================="
@@ -152,9 +138,16 @@ jobs:
         du -h --max-depth=1 ./build_dir
         du -h --max-depth=1 ./staging_dir
 
+    - name: 上传错误日志
+      uses: actions/upload-artifact@v3
+      if: steps.compile.conclusion == 'failure' && !cancelled()
+      with:
+        name: Logs_Toolchain_${{ env.FILE_DATE }}
+        path: ${{ env.REPO_FLODER }}/logs
+
     - name: 筛选固件
       id: organize
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: steps.compile.conclusion == 'success' && !cancelled()
       run: |
         mkdir firmware output
         ls $REPO_FLODER/bin/targets/*/*/
@@ -167,32 +160,31 @@ jobs:
         Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
         RANDOM=$$$(date +%s); rand=$[$RANDOM % ${#Emoji[@]}]
         echo "EMOJI=${Emoji[$rand]}" >>$GITHUB_ENV
-        echo "status=success" >>$GITHUB_OUTPUT
         
     - name: 上传bin包
       uses: actions/upload-artifact@v3
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true' && !cancelled()
+      if: steps.organize.conclusion == 'success' && env.UPLOAD_BIN_DIR == 'true' && !cancelled()
       with:
         name: OpenWrt-${{env.TARGET_DEVICE}}-bin
         path: ${{env.REPO_FLODER}}/bin
 
     - name: 上传packages包
       uses: actions/upload-artifact@v3
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_PACKAGES == 'true' && !cancelled()
+      if: steps.organize.conclusion == 'success' && env.UPLOAD_PACKAGES == 'true' && !cancelled()
       with:
         name: OpenWrt-${{env.TARGET_DEVICE}}-package
         path: ${{env.REPO_FLODER}}/bin/packages
 
     - name: 上传firmware
       uses: actions/upload-artifact@v3
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_SYSUPGRADE == 'true' && !cancelled()
+      if: steps.organize.conclusion == 'success' && env.UPLOAD_SYSUPGRADE == 'true' && !cancelled()
       with:
         name: OpenWrt-${{env.TARGET_DEVICE}}-firmware
         path: firmware/*${{env.FIRMWARE_TYPE}}*
 
     - name: 上传到奶牛快传
       id: cowtransfer
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
+      if: steps.organize.conclusion == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
       run: |
         curl -fsSL git.io/file-transfer | sh
         ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
@@ -200,7 +192,7 @@ jobs:
 
     - name: 上传到WeTransfer
       id: wetransfer
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+      if: steps.organize.conclusion == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
       run: |
         curl -fsSL git.io/file-transfer | sh
         ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
@@ -211,20 +203,27 @@ jobs:
       if: env.FETCH_CACHE == 'true' && !cancelled()
       run: |
         curl -fsSL https://raw.githubusercontent.com/hong0980/diy/master/fetch_cache.sh | /bin/bash
-        echo "status=success" >>$GITHUB_OUTPUT
+        export AUTH="Authorization: token ${{ secrets.GITHUB_TOKEN }}"
+        export cache_path='github.com/repos/hong0980/OpenWrt-Cache/releases'
+        export cache_repo_id='32021831'
+        ret=$(curl -sH "$AUTH" "https://api.$cache_path/tags/cache")
+        echo $ret | tee -a output/1
 
     - name: Save cache state
       if: env.SAVE_CACHE == 'true' && steps.fetch_cache.conclusion == 'success' && !cancelled()
       run: |
-          echo "上传到github"
-          export AUTH="Authorization: token ${{ secrets.GITHUB_TOKEN }}"
-          export cache_path='github.com/repos/hong0980/OpenWrt-Cache/releases'
-          export cache_repo_id='32021831'
-          ls firmware/*img.zst* firmware/*toolchain* firmware/*imagebuilder* | \
-          parallel --wc 'while true; do curl -T {} -H "$AUTH" -H "Content-Type: application/octet-stream" "https://uploads.$cache_path/$cache_repo_id/assets?name={}" && break || true; done'
+        echo "上传到github"
+        export AUTH="Authorization: token ${{ secrets.GITHUB_TOKEN }}"
+        export cache_path='github.com/repos/hong0980/OpenWrt-Cache/releases'
+        export cache_repo_id='32021831'
+        ls output
+        ls output | parallel --wc '\
+        while true; do \
+        curl -T {} -H "$AUTH" -H "Content-Type: application/octet-stream" "https://uploads.$cache_path/$cache_repo_id/assets?name={}" && \
+        break || true; done'
 
     - name: 上传到 Release
-      if: steps.organize.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'&& !cancelled()
+      if: steps.organize.conclusion == 'success' && env.UPLOAD_RELEASE == 'true'&& !cancelled()
       uses: softprops/action-gh-release@v1
       with:
         files: firmware/*
@@ -233,13 +232,20 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         name: ${{env.STRDATE}} ${{env.EMOJI}} 自动发布 ${{env.EMOJI}}
 
-    # - name: 上传到 release
-    #   if: steps.fetch_cache.outputs.status == 'success' && !cancelled()
-    #   uses: ncipollo/release-action@v1.11.2
-    #   with:
-    #     owner: OpenWrt-Cache
-    #     repo:  hong0980
-    #     token: ${{ secrets.GITHUB_TOKEN }}
-    #     artifacts: output/*
-    #     tag: ${{ github.ref }}
-    #     body: "This is my release text"
+    - name: 上传到 Release
+      if: steps.fetch_cache.conclusion == 'success' && env.UPLOAD_RELEASE == 'true'&& !cancelled()
+      uses: ncipollo/release-action@v1.11.2
+      with:
+        allowUpdates: true
+        artifacts: output/*
+        draft: true
+        omitBodyDuringUpdate: true
+        omitDraftDuringUpdate: true
+        omitNameDuringUpdate: true
+        omitPrereleaseDuringUpdate: true
+        owner: 'hong0980'
+        prerelease: true
+        replacesArtifacts: false
+        repo: 'OpenWrt-Cache'
+        tag: ' ${{env.STRDATE}}'
+        token: ${{ secrets.GITHUB_TOKEN }}
