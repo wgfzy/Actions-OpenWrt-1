@@ -8,30 +8,28 @@
 
 name: lean_openwrt
 on:
- # push:
-  # paths:
-  #   - 'lean_openwrt'
-  # schedule:
-    # - cron: 0 19 * * *
+#  push:
+#   paths: 'lean_openwrt'
+#   schedule: cron: 0 19 * * *
 # on:
-  # watch:
-  #   types: started
+#   watch:
+#     types: started
   workflow_dispatch:
     inputs:
       repository:
-        description: 'r1-plus-lts选择仓库：lean，baiywt, xunlong官方'
+        description: 'r1-plus-lts选择仓库：'
+        options: [ lean, xunlong, baiywt ]
         default: 'lean'
         required: true
         type: choice
-        options: [ lean, xunlong, baiywt ]
       target:
-        description: '选择要生成firmware的机型：'
+        description: '选择要生成的机型：'
+        options: [ x86_64, r1-plus-lts, r1-plus, newifi-d2, asus_rt-n16, phicomm_k2p, armvirt_64_Default, r4s, r2s, r2c ]
         default: 'r1-plus-lts'
         required: true
         type: choice
-        options: [ x86_64, newifi-d2, r4s, r2s, r2c, phicomm_k2p, armvirt_64_Default, asus_rt-n16, r1-plus-lts, r1-plus ]
       version:
-        description: '选择要生成版本： pure(纯净)，plus(全家桶)'
+        description: '选择要生成版本：'
         default: 'plus'
         required: true
         type: choice
@@ -63,15 +61,15 @@ jobs:
       IP: ${{ github.event.inputs.ip }}
       VERSION: ${{ github.event.inputs.version }}
       PARTSIZE: ${{ github.event.inputs.partsize }}
-      REPOSITORY: ${{ github.event.inputs.repository }}
       TARGET_DEVICE: ${{ github.event.inputs.target }}
+      REPOSITORY: ${{ github.event.inputs.repository }}
     #   TARGET_DEVICE: ${{matrix.target}}
     # strategy:
     #   fail-fast: false
     #   matrix:
     #     target: ["x86_64", "r1-plus-lts"]
-        # target: ["newifi-d2", "phicomm_k2p" ,"asus_rt-n16", "armvirt_64_Default", "x86_64"]
-        # target: ["newifi-d2", "x86_64", "r1-plus-lts", "phicomm_k2p", "armvirt_64_Default", "asus_rt-n16"]
+    #     target: ["newifi-d2", "phicomm_k2p" ,"asus_rt-n16", "armvirt_64_Default", "x86_64"]
+    #     target: ["newifi-d2", "x86_64", "r1-plus-lts", "phicomm_k2p", "armvirt_64_Default", "asus_rt-n16"]
 
     steps:
     - name: Checkout
@@ -160,7 +158,7 @@ jobs:
         Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
         RANDOM=$$$(date +%s); rand=$[$RANDOM % ${#Emoji[@]}]
         echo "EMOJI=${Emoji[$rand]}" >>$GITHUB_ENV
-        
+
     - name: 上传bin包
       uses: actions/upload-artifact@v3
       if: steps.organize.conclusion == 'success' && env.UPLOAD_BIN_DIR == 'true' && !cancelled()
@@ -198,11 +196,11 @@ jobs:
         ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
         echo "::warning file=↓↓wetransfer下载地址↓↓::$(grep https wetransfer.log)"
 
-    - name: fetch_cache
+    - name: fetch cache
       id: fetch_cache
-      if: env.FETCH_CACHE == 'true' && !cancelled()
+      if: steps.organize.conclusion == 'success' && env.FETCH_CACHE == 'true' && !cancelled()
       run: |
-        curl -fsSL https://raw.githubusercontent.com/hong0980/diy/master/fetch_cache.sh | /bin/bash
+        curl -fsSL raw.githubusercontent.com/hong0980/diy/master/fetch_cache.sh | bash
         export AUTH="Authorization: token ${{ secrets.GITHUB_TOKEN }}"
         export cache_path='github.com/repos/hong0980/OpenWrt-Cache/releases'
         export cache_repo_id='32021831'
@@ -210,7 +208,7 @@ jobs:
         echo $ret | tee -a output/1
 
     - name: Save cache state
-      if: env.SAVE_CACHE == 'true' && steps.fetch_cache.conclusion == 'success' && !cancelled()
+      if: steps.fetch_cache.conclusion == 'success' && env.SAVE_CACHE == 'true' && !cancelled()
       run: |
         echo "上传到github"
         export AUTH="Authorization: token ${{ secrets.GITHUB_TOKEN }}"
@@ -226,8 +224,8 @@ jobs:
       if: steps.organize.conclusion == 'success' && env.UPLOAD_RELEASE == 'true'&& !cancelled()
       uses: softprops/action-gh-release@v1
       with:
-        files: firmware/*
         append_body: true
+        files: firmware/*, output/*
         tag_name: ${{env.STRDATE}}
         token: ${{ secrets.GITHUB_TOKEN }}
         name: ${{env.STRDATE}} ${{env.EMOJI}} 自动发布 ${{env.EMOJI}}
@@ -236,16 +234,16 @@ jobs:
       if: steps.fetch_cache.conclusion == 'success' && env.UPLOAD_RELEASE == 'true'&& !cancelled()
       uses: ncipollo/release-action@v1.11.2
       with:
-        allowUpdates: true
-        artifacts: output/*
         draft: true
-        omitBodyDuringUpdate: true
-        omitDraftDuringUpdate: true
-        omitNameDuringUpdate: true
-        omitPrereleaseDuringUpdate: true
-        owner: 'hong0980'
         prerelease: true
+        allowUpdates: true
         replacesArtifacts: false
+        omitBodyDuringUpdate: true
+        omitNameDuringUpdate: true
+        omitDraftDuringUpdate: true
+        omitPrereleaseDuringUpdate: true
+        artifacts: output/*
+        owner: 'hong0980'
         repo: 'OpenWrt-Cache'
-        tag: ' ${{env.STRDATE}}'
+        tag: '${{env.STRDATE}}'
         token: ${{ secrets.GITHUB_TOKEN }}
