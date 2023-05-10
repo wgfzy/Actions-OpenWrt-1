@@ -14,5 +14,5 @@
 #sed -i 's/^#\(.*helloworld\)/\1/' feeds.conf.default
 
 # Add feed sources
-sed -i '$a src-git small https://github.com/kenzok8/small-package' feeds.conf.default
+#sed -i '$a src-git small https://github.com/kenzok8/small-package' feeds.conf.default
 # theme
